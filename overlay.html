@@ -9,7 +9,6 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
     body { background-color: transparent; overflow: hidden; width: 100vw; height: 100vh; position: relative; }
 
-    /* Estilo da Barra Inferior (Lower Third) */
     .lower-third-container {
       position: absolute;
       bottom: 40px;
@@ -21,20 +20,17 @@
       transform: translateY(200px);
       opacity: 0;
     }
-    .lower-third-container.active {
-      transform: translateY(0);
-      opacity: 1;
-    }
+    .lower-third-container.active { transform: translateY(0); opacity: 1; }
 
     .box-pista {
-      background: linear-gradient(90deg, #111 0%, rgba(20,20,20,0.9) 100%);
+      background: linear-gradient(90deg, #111 0%, rgba(20,20,20,0.95) 100%);
       border-left: 6px solid #ffb703;
       padding: 12px 25px;
       border-radius: 4px;
       color: #fff;
       box-shadow: 0 5px 15px rgba(0,0,0,0.5);
     }
-    .box-pista h3 { color: #ffb703; font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; }
+    .box-pista h3 { color: #ffb703; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
     .box-pista p { font-size: 1.4rem; font-weight: bold; margin-top: 2px; }
 
     .box-proximo {
@@ -45,9 +41,7 @@
       color: #ccc;
       width: fit-content;
     }
-    .box-proximo span { color: #0077b6; font-weight: bold; }
 
-    /* Estilo da Tabela Parcial da Bateria */
     .overlay-bateria-container {
       position: absolute;
       top: 50px;
@@ -64,10 +58,7 @@
       transform: translateX(500px);
       opacity: 0;
     }
-    .overlay-bateria-container.active {
-      transform: translateX(0);
-      opacity: 1;
-    }
+    .overlay-bateria-container.active { transform: translateX(0); opacity: 1; }
 
     .overlay-bateria-container h2 {
       font-size: 1.1rem;
@@ -88,18 +79,16 @@
 </head>
 <body>
 
-  <!-- ELEMENTO LOWER THIRD -->
   <div class="lower-third-container" id="lowerThird">
     <div class="box-pista">
       <h3>🤠 NA PISTA AGORA</h3>
       <p id="txtTrioAtual">Aguardando trio...</p>
     </div>
     <div class="box-proximo">
-      <span>PRÓXIMO:</span> <span id="txtTrioProximo" style="color:#fff;">-</span>
+      <span style="color: #0077b6; font-weight: bold;">PRÓXIMO:</span> <span id="txtTrioProximo" style="color:#fff;">-</span>
     </div>
   </div>
 
-  <!-- ELEMENTO PLACAR BATERIA PARCIAL -->
   <div class="overlay-bateria-container" id="overlayBateria">
     <h2 id="tituloBateria">CLASSIFICAÇÃO PARCIAL</h2>
     <table class="tabela-parcial">
@@ -111,7 +100,7 @@
         </tr>
       </thead>
       <tbody id="corpoTabelaParcial">
-        <tr><td colspan="3" style="text-align:center; color:#777;">Carregando tempos...</td></tr>
+        <tr><td colspan="3" style="text-align:center; color:#777;">Carregando...</td></tr>
       </tbody>
     </table>
   </div>
@@ -119,7 +108,6 @@
   <script type="module">
     import { db, doc, collection, getDocs, onSnapshot, query, where } from "./firebase-config.js";
 
-    // Obtém o ID da competição diretamente da URL (ex: overlay.html?compId=123)
     const urlParams = new URLSearchParams(window.location.search);
     const compId = urlParams.get("compId");
 
@@ -137,31 +125,21 @@
     }
 
     if (compId) {
-      iniciarEscutadorOverlay(compId);
-    } else {
-      console.warn("Nenhum ID de competição fornecido na URL (?compId=...)");
-    }
-
-    function iniciarEscutadorOverlay(id) {
-      // Ouve atualizações de exibição na coleção overlay_state
-      onSnapshot(doc(db, "overlay_state", id), (docSnap) => {
+      onSnapshot(doc(db, "overlay_state", compId), (docSnap) => {
         if (!docSnap.exists()) return;
-
         const data = docSnap.data();
 
-        // 1. Atualiza e exibe/oculta Lower Third
         if (data.lowerThirdVisivel) {
-          txtTrioAtual.innerText = data.trioAtual || "Trio em Pista";
+          txtTrioAtual.innerText = data.trioAtual || "Aguardando definição...";
           txtTrioProximo.innerText = data.trioProximo || "Em breve";
           lowerThird.classList.add("active");
         } else {
           lowerThird.classList.remove("active");
         }
 
-        // 2. Atualiza e exibe/oculta Placar por Bateria
         if (data.bateriaAtivaVisivel) {
           tituloBateria.innerText = `CLASSIFICAÇÃO PARCIAL - ${data.bateriaAtivaVisivel}ª BATERIA`;
-          carregarDadosBateriaParcial(id, data.bateriaAtivaVisivel);
+          carregarDadosBateriaParcial(compId, data.bateriaAtivaVisivel);
           overlayBateria.classList.add("active");
         } else {
           overlayBateria.classList.remove("active");
@@ -179,21 +157,17 @@
 
         const snap = await getDocs(q);
         let corridas = [];
+        snap.forEach(d => corridas.push(d.data()));
 
-        snap.forEach(d => {
-          corridas.push(d.data());
-        });
-
-        // Ordena pelo menor tempo válido
         corridas.sort((a, b) => (parseFloat(a.tempo) || 999) - (parseFloat(b.tempo) || 999));
 
         if (corridas.length === 0) {
-          corpoTabelaParcial.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888;">Nenhum tempo registrado para esta bateria.</td></tr>`;
+          corpoTabelaParcial.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888;">Nenhum tempo registrado nesta bateria.</td></tr>`;
           return;
         }
 
         corpoTabelaParcial.innerHTML = "";
-        corridas.slice(0, 5).forEach((item, index) => { // Exibe os top 5
+        corridas.slice(0, 5).forEach((item, index) => {
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td><strong>${index + 1}º</strong></td>
@@ -202,9 +176,8 @@
           `;
           corpoTabelaParcial.appendChild(tr);
         });
-
       } catch (err) {
-        console.error("Erro ao buscar dados da bateria no Firestore:", err);
+        console.error("Erro ao carregar ranking da bateria:", err);
       }
     }
   </script>
