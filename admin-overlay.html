@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mesa de Controle - Overlays OBS</title>
+  <script type="module" src="./firebase-config.js"></script>
+  <style>
+    :root {
+      --bg-dark: #121212;
+      --card-bg: #1e1e1e;
+      --accent-gold: #ffb703;
+      --accent-green: #2a9d8f;
+      --accent-red: #e76f51;
+      --accent-blue: #0077b6;
+      --text-light: #f8f9fa;
+      --border-color: #333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-light); padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 15px; margin-bottom: 25px; }
+    header h1 { color: var(--accent-gold); font-size: 1.5rem; text-transform: uppercase; }
+    
+    .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 900px) { .grid-container { grid-template-columns: 1fr; } }
+
+    .secao { background: var(--card-bg); border-radius: 8px; padding: 20px; border: 1px solid var(--border-color); }
+    .secao h2 { color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; font-size: 0.85rem; color: #ccc; margin-bottom: 5px; }
+    .form-group select, .form-group input { width: 100%; padding: 10px; background: #2b2b2b; border: 1px solid #444; border-radius: 4px; color: #fff; }
+
+    .btn-ctrl { padding: 10px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
+    .btn-on { background: var(--accent-green); color: #fff; }
+    .btn-off { background: var(--accent-red); color: #fff; }
+    .btn-action { background: var(--accent-blue); color: #fff; }
+
+    .baterias-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
+    .bateria-card { background: #262626; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #444; }
+    .bateria-card h4 { margin-bottom: 8px; font-size: 0.9rem; color: var(--accent-gold); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>📺 CONTROLE DE TRANSMISSÃO (OBS OVERLAYS)</h1>
+    <button class="btn-ctrl btn-off" id="btnSair">SAIR</button>
+  </header>
+
+  <div class="secao" style="margin-bottom: 20px;">
+    <div class="form-group">
+      <label for="selectComp">Selecione a Competição Ativa:</label>
+      <select id="selectComp">
+        <option value="">Carregando competições...</option>
+      </select>
+    </div>
+  </div>
+
+  <main class="grid-container">
+    
+    <!-- CONTROLE LOWER THIRD -->
+    <section class="secao">
+      <h2>👤 LOWER THIRD (TRIO NA PISTA / PRÓXIMO)</h2>
+
+      <div class="form-group">
+        <label>Trio Atual na Pista:</label>
+        <input type="text" id="trioAtual" placeholder="Ex: João, Maria e Pedro (Gado 12)">
+      </div>
+
+      <div class="form-group">
+        <label>Próximo Trio:</label>
+        <input type="text" id="trioProximo" placeholder="Ex: Carlos, Ana e Marcos">
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <button class="btn-ctrl btn-on" id="btnExibirLower">👁️ EXIBIR LOWER THIRD</button>
+        <button class="btn-ctrl btn-off" id="btnOcultarLower">🙈 OCULTAR LOWER THIRD</button>
+      </div>
+    </section>
+
+    <!-- CONTROLE DE BATERIAS PARCIAIS -->
+    <section class="secao">
+      <h2>📊 PLACAR PARCIAL POR BATERIA</h2>
+      <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 12px;">Selecione a bateria para ligar ou desligar na transmissão:</p>
+      
+      <div id="containerBaterias" class="baterias-grid">
+        <p style="color: #666; font-size: 0.85rem;">Selecione uma competição primeiro.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { auth, db, collection, getDocs, doc, setDoc, updateDoc, onSnapshot, onAuthStateChanged, signOut } from "./firebase-config.js";
+
+    let currentUser = null;
+    let compSelecionadaId = "";
+    const ADMIN_UID = "Cd4J21mv9RboRNLw7tcYVlcG1Pj2";
+
+    const selectComp = document.getElementById("selectComp");
+    const containerBaterias = document.getElementById("containerBaterias");
+
+    function escapeHTML(str) {
+      if (typeof str !== 'string') return str;
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "./index.html";
+        return;
+      }
+
+      // Validação de permissão do operador via banco de dados
+      if (user.uid !== ADMIN_UID) {
+        const uSnap = await getDocs(collection(db, "usuarios_transmissao"));
+        let autorizado = false;
+        uSnap.forEach(d => {
+          if (d.id === user.uid && d.data().autorizado) autorizado = true;
+        });
+
+        if (!autorizado) {
+          alert("Acesso não autorizado pelo Administrador.");
+          signOut(auth);
+          window.location.href = "./index.html";
+          return;
+        }
+      }
+
+      currentUser = user;
+      await carregarCompeticoes();
+    });
+
+    async function carregarCompeticoes() {
+      const snapshot = await getDocs(collection(db, "competicoes"));
+      selectComp.innerHTML = `<option value="">Selecione uma competição...</option>`;
+
+      snapshot.forEach(d => {
+        const c = d.data();
+        if (c.status !== "FINALIZADA") {
+          selectComp.innerHTML += `<option value="${d.id}">${escapeHTML(c.nome)}</option>`;
+        }
+      });
+    }
+
+    selectComp.addEventListener("change", async (e) => {
+      compSelecionadaId = e.target.value;
+      if (!compSelecionadaId) return;
+
+      // Inicializa estado no banco para esta competição caso não exista
+      const estadoRef = doc(db, "overlay_state", compSelecionadaId);
+      await setDoc(estadoRef, {
+        lowerThirdVisivel: false,
+        bateriaAtivaVisivel: null
+      }, { merge: true });
+
+      renderizarControlesBaterias();
+    });
+
+    async function renderizarControlesBaterias() {
+      if (!compSelecionadaId) return;
+
+      const compRef = doc(db, "competicoes", compSelecionadaId);
+      const snap = await getDocs(collection(db, "competicoes"));
+      let compData = null;
+      snap.forEach(d => { if(d.id === compSelecionadaId) compData = d.data(); });
+
+      if (!compData || !compData.categorias) return;
+
+      containerBaterias.innerHTML = "";
+
+      // Descobre o número máximo de baterias configuradas entre as categorias
+      let maxBaterias = 2;
+      compData.categorias.forEach(c => {
+        if (c.qtdBaterias > maxBaterias) maxBaterias = c.qtdBaterias;
+      });
+
+      for (let i = 1; i <= maxBaterias; i++) {
+        const bCard = document.createElement("div");
+        bCard.className = "bateria-card";
+        bCard.innerHTML = `
+          <h4>${i}ª BATERIA</h4>
+          <button class="btn-ctrl btn-on btnExibirBat" data-bat="${i}" style="width:100%; margin-bottom:5px;">EXIBIR</button>
+          <button class="btn-ctrl btn-off btnOcultarBat" data-bat="${i}" style="width:100%;">OCULTAR</button>
+        `;
+
+        bCard.querySelector(".btnExibirBat").addEventListener("click", () => alternarBateria(i, true));
+        bCard.querySelector(".btnOcultarBat").addEventListener("click", () => alternarBateria(i, false));
+
+        containerBaterias.appendChild(bCard);
+      }
+    }
+
+    async function alternarBateria(numBateria, visivel) {
+      if (!compSelecionadaId) return;
+      const estadoRef = doc(db, "overlay_state", compSelecionadaId);
+      await updateDoc(estadoRef, {
+        bateriaAtivaVisivel: visivel ? numBateria : null
+      });
+    }
+
+    document.getElementById("btnExibirLower").addEventListener("click", async () => {
+      if (!compSelecionadaId) return alert("Selecione a competição!");
+      const estadoRef = doc(db, "overlay_state", compSelecionadaId);
+      await updateDoc(estadoRef, {
+        lowerThirdVisivel: true,
+        trioAtual: document.getElementById("trioAtual").value,
+        trioProximo: document.getElementById("trioProximo").value
+      });
+    });
+
+    document.getElementById("btnOcultarLower").addEventListener("click", async () => {
+      if (!compSelecionadaId) return alert("Selecione a competição!");
+      const estadoRef = doc(db, "overlay_state", compSelecionadaId);
+      await updateDoc(estadoRef, { lowerThirdVisivel: false });
+    });
+
+    document.getElementById("btnSair").addEventListener("click", () => {
+      signOut(auth).then(() => window.location.href = "./index.html");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Liberação de Operadores da Live</title>
+  <script type="module" src="./firebase-config.js"></script>
+  <style>
+    :root {
+      --bg-dark: #121212;
+      --card-bg: #1e1e1e;
+      --accent-gold: #ffb703;
+      --accent-green: #2a9d8f;
+      --accent-red: #e76f51;
+      --text-light: #f8f9fa;
+      --border-color: #333;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-light); padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 15px; margin-bottom: 25px; }
+    header h1 { color: var(--accent-gold); font-size: 1.5rem; text-transform: uppercase; }
+    .btn-danger { background: var(--accent-red); color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .card { background: var(--card-bg); border-radius: 8px; padding: 20px; border: 1px solid var(--border-color); max-width: 900px; margin: 0 auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+    th { color: var(--accent-gold); }
+    .badge-ativo { background: var(--accent-green); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+    .badge-inativo { background: var(--accent-red); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+    .btn-toggle { padding: 6px 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    .btn-permitir { background: var(--accent-green); color: #fff; }
+    .btn-bloquear { background: var(--accent-red); color: #fff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🔐 PAINEL ADMIN - CONTROLE DE USUÁRIOS TRANSMISSÃO</h1>
+    <button class="btn-danger" id="btnSair">SAIR</button>
+  </header>
+
+  <main class="card">
+    <h2 style="font-size: 1.2rem; color: #ccc; margin-bottom: 10px;">Operadores Cadastrados</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>E-mail / UID</th>
+          <th>Status</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody id="tabelaUsuarios">
+        <tr><td colspan="3" style="text-align:center; color:#888;">Carregando operadores...</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script type="module">
+    import { auth, db, collection, getDocs, doc, updateDoc, onAuthStateChanged, signOut } from "./firebase-config.js";
+
+    const ADMIN_UID = "Cd4J21mv9RboRNLw7tcYVlcG1Pj2"; // UID Admin Master
+    const tabelaUsuarios = document.getElementById("tabelaUsuarios");
+
+    function escapeHTML(str) {
+      if (typeof str !== 'string') return str;
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user || user.uid !== ADMIN_UID) {
+        alert("Acesso restrito ao administrador.");
+        window.location.href = "./index.html";
+        return;
+      }
+      carregarUsuarios();
+    });
+
+    async function carregarUsuarios() {
+      try {
+        const snapshot = await getDocs(collection(db, "usuarios_transmissao"));
+        if (snapshot.empty) {
+          tabelaUsuarios.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#888;">Nenhum operador de transmissão cadastrado.</td></tr>`;
+          return;
+        }
+
+        tabelaUsuarios.innerHTML = "";
+        snapshot.forEach(docSnap => {
+          const u = docSnap.data();
+          const uid = docSnap.id;
+
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHTML(u.email || uid)}</td>
+            <td>
+              <span class="${u.autorizado ? 'badge-ativo' : 'badge-inativo'}">
+                ${u.autorizado ? 'LIBERADO' : 'BLOQUEADO'}
+              </span>
+            </td>
+            <td>
+              <button class="btn-toggle ${u.autorizado ? 'btn-bloquear' : 'btn-permitir'}" data-id="${uid}" data-status="${!u.autorizado}">
+                ${u.autorizado ? 'Bloquear Acesso' : 'Liberar Acesso'}
+              </button>
+            </td>
+          `;
+
+          tr.querySelector(".btn-toggle").addEventListener("click", async (e) => {
+            const targetUid = e.target.getAttribute("data-id");
+            const novoStatus = e.target.getAttribute("data-status") === "true";
+            await updateDoc(doc(db, "usuarios_transmissao", targetUid), { autorizado: novoStatus });
+            carregarUsuarios();
+          });
+
+          tabelaUsuarios.appendChild(tr);
+        });
+      } catch (error) {
+        console.error("Erro ao carregar usuários:", error);
+      }
+    }
+
+    document.getElementById("btnSair").addEventListener("click", () => {
+      signOut(auth).then(() => window.location.href = "./index.html");
+    });
+  </script>
+</body>
+</html>
